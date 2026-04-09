@@ -60,9 +60,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         password = user_input[CONFIG_PASSWORD]
         file = user_input[CONFIG_FILE]
         cert = user_input.get(CONFIG_CERT)
-        skip_validate_cert = user_input.get(CONFIG_SKIP_VALIDATE_CERT, True)
+        skip_validate_cert = user_input.get(CONFIG_SKIP_VALIDATE_CERT, False)
         encrypt_password = user_input.get(CONFIG_ENCRYPT_PASSWORD)
-        if not skip_validate_cert:
+        if skip_validate_cert:
             cert = False
 
         await self.async_set_unique_id(unique_id)
