@@ -66,6 +66,9 @@ class ActualBudget:
     refreshes (e.g. poll + manual sync) don't corrupt SQLAlchemy state.
     """
 
+    _locks: dict[str, threading.RLock] = {}
+    _locks_guard = threading.Lock()
+
     def __init__(self, hass, endpoint, password, file, cert, encrypt_password):
         self.hass = hass
         self.endpoint = endpoint
@@ -76,7 +79,18 @@ class ActualBudget:
         self.actual: Actual | None = None
         self.file_id = None
         self.session_started_at = datetime.datetime.now()
-        self._lock = threading.RLock()
+        self._lock = self._get_shared_lock(endpoint, file)
+
+    @classmethod
+    def _get_shared_lock(cls, endpoint: str, file: str) -> threading.RLock:
+        """Return a process-wide lock for a specific endpoint+file combination."""
+        lock_key = f"{endpoint}|{file}"
+        with cls._locks_guard:
+            lock = cls._locks.get(lock_key)
+            if lock is None:
+                lock = threading.RLock()
+                cls._locks[lock_key] = lock
+        return lock
 
     def _ensure_session(self):
         """Return a valid Actual session, creating one if needed.
@@ -191,6 +205,21 @@ class ActualBudget:
         with self._lock:
             self._ensure_session()
             self.actual.sync()
+
+    async def async_close(self) -> None:
+        """Close any active Actual session."""
+        await self.hass.async_add_executor_job(self._close_session)
+
+    def _close_session(self) -> None:
+        with self._lock:
+            if not self.actual:
+                return
+            try:
+                self.actual.__exit__(None, None, None)
+            except Exception as err:
+                _LOGGER.warning("Error closing Actual session: %s", err)
+            finally:
+                self.actual = None
 
     # -- connection test ----------------------------------------------------
 
