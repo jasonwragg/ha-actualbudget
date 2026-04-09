@@ -26,6 +26,9 @@
     },
     "error": {
       "failed_to_connect": "Failed to connect",
+      "failed_connection": "Failed to connect",
+      "failed_ssl": "Failed to connect: certificate error",
+      "failed_auth": "Failed to connect: invalid password",
       "failed_cert": "Failed to connect: certificate error",
       "failed_file": "Failed to connect: invalid file id",
       "failed_unknown": "Failed to connect: unknown error"
