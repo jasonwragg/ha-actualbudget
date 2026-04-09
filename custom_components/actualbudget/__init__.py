@@ -75,5 +75,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        entry_data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if entry_data:
+            api: ActualBudget = entry_data["api"]
+            await api.async_close()
     return unloaded
