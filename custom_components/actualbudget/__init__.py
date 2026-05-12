@@ -9,13 +9,14 @@ from homeassistant.core import (HomeAssistant)
 from homeassistant.helpers.typing import ConfigType
 
 from .actions import register_actions
-from .actualbudget import ActualBudget
+from .actualbudget import ActualBudget, _normalize_cert
 from .const import (
     CONFIG_CERT,
     CONFIG_ENCRYPT_PASSWORD,
     CONFIG_ENDPOINT,
     CONFIG_FILE,
     CONFIG_PASSWORD,
+    CONFIG_SKIP_VALIDATE_CERT,
     DOMAIN,
 )
 from .coordinator import ActualBudgetCoordinator
@@ -41,8 +42,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the component from a config entry."""
     config = entry.data
     cert = config.get(CONFIG_CERT)
-    if cert == "SKIP":
+    if config.get(CONFIG_SKIP_VALIDATE_CERT, False):
         cert = False
+    else:
+        cert = _normalize_cert(cert)
 
     api = ActualBudget(
         hass,
