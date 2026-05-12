@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import sqlite3
 from dataclasses import dataclass, field
 from decimal import Decimal
 import datetime
@@ -240,4 +241,10 @@ class ActualBudget:
             return "failed_auth"
         except (UnknownFileId, InvalidFile, InvalidZipFile):
             return "failed_file"
+        except sqlite3.OperationalError as err:
+            _LOGGER.warning("Actual Budget local database migration failed: %s", err)
+            return "failed_migration"
+        except Exception:
+            _LOGGER.exception("Unexpected error testing Actual Budget connection")
+            return "failed_unknown"
         return None

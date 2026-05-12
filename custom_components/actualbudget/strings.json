@@ -31,6 +31,7 @@
       "failed_auth": "Failed to connect: invalid password",
       "failed_cert": "Failed to connect: certificate error",
       "failed_file": "Failed to connect: invalid file id",
+      "failed_migration": "Failed to open the budget database. Update the integration dependencies and try again.",
       "failed_unknown": "Failed to connect: unknown error"
     },
     "abort": {
