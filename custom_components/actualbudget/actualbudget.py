@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import sqlite3
+import types
 from dataclasses import dataclass, field
 from decimal import Decimal
 import datetime
@@ -13,11 +14,14 @@ from typing import Dict, List
 
 from actual import Actual
 from actual.exceptions import (
+    ActualError,
     AuthorizationError,
     InvalidFile,
     InvalidZipFile,
     UnknownFileId,
 )
+from actual.database import reflect_model
+from actual.migrations import js_migration_statements
 from actual.queries import (
     get_accounts,
     get_accumulated_budgeted_balance,
@@ -57,6 +61,70 @@ class BudgetData:
 
     accounts: Dict[str, Account] = field(default_factory=dict)
     budgets: Dict[str, Budget] = field(default_factory=dict)
+
+
+def _looks_like_html(content: bytes) -> bool:
+    """Return whether server content appears to be an HTML fallback page."""
+    return content.lstrip().lower().startswith((b"<", b"<!doctype html"))
+
+
+def _data_file_with_relative_fallback(actual: Actual, file: str) -> bytes:
+    """Fetch a migration file, preserving subpath deployments when needed."""
+    migration = actual.data_file(file)
+    if not _looks_like_html(migration):
+        return migration
+
+    response = actual._requests_session.get(f"data/{file}")
+    response.raise_for_status()
+    relative_migration = response.content
+    if not _looks_like_html(relative_migration):
+        return relative_migration
+
+    return migration
+
+
+def _run_migrations_safely(actual: Actual, migration_files: list[str]) -> None:
+    """Run Actual migrations while ignoring HTML fallback responses.
+
+    Some reverse proxies return the Actual web app HTML shell with HTTP 200 for
+    missing ``/data/migrations/...`` files. Passing that HTML to SQLite raises
+    ``near "<": syntax error``. Try a relative ``data/migrations/...`` path
+    first for subpath deployments, then log and continue instead of crashing
+    the integration if the server still returns HTML.
+    """
+    with sqlite3.connect(actual.data_dir / "db.sqlite") as conn:
+        for file in migration_files:
+            if not file.startswith("migrations"):
+                continue
+
+            migration_id = file.split("_")[0].split("/")[1]
+            if conn.execute(
+                "SELECT id FROM __migrations__ WHERE id = ?;", (migration_id,)
+            ).fetchall():
+                continue
+
+            migration = _data_file_with_relative_fallback(actual, file)
+            if _looks_like_html(migration):
+                _LOGGER.warning(
+                    "Skipping Actual Budget migration %s because the server "
+                    "returned HTML instead of SQL/JavaScript. Check the "
+                    "Actual Budget endpoint/reverse proxy /data path if "
+                    "database features appear stale.",
+                    file,
+                )
+                continue
+
+            sql_statements = migration.decode()
+            if file.endswith(".js"):
+                sql_statements = "\n".join(js_migration_statements(sql_statements))
+
+            conn.executescript(sql_statements)
+            conn.execute("INSERT INTO __migrations__ (id) VALUES (?);", (migration_id,))
+            conn.commit()
+
+    if actual.engine is None:
+        raise ActualError("Engine not initialized. Download or create a budget first.")
+    actual._database_metadata = reflect_model(actual.engine)
 
 
 class ActualBudget:
@@ -134,6 +202,7 @@ class ActualBudget:
             pathlib.Path(self.hass.config.path("actualbudget")) / f"{self.file_id}"
         )
         _LOGGER.debug(f"Creating budget file on folder {actual._data_dir}")
+        actual.run_migrations = types.MethodType(_run_migrations_safely, actual)
         actual.__enter__()
         result = actual.validate()
         if not result.data.validated:
