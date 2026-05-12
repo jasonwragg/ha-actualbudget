@@ -10,7 +10,7 @@ from decimal import Decimal
 import datetime
 import logging
 import threading
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from actual import Actual
 from actual.exceptions import (
@@ -33,6 +33,28 @@ from requests.exceptions import ConnectionError, SSLError
 _LOGGER = logging.getLogger(__name__)
 
 SESSION_TIMEOUT = datetime.timedelta(minutes=30)
+
+
+def _normalize_cert(cert: Any) -> str | bool:
+    """Return an ActualPy-compatible certificate verification setting.
+
+    ActualPy expects ``True`` for default certificate verification, ``False``
+    to skip verification, or a non-empty certificate string. Home Assistant
+    optional text fields are commonly stored as ``None`` or an empty string,
+    and passing those through to ActualPy makes it call
+    ``ssl.SSLContext.load_verify_locations`` without any certificate data.
+    """
+    if cert is False:
+        return False
+    if cert is True:
+        return True
+    if isinstance(cert, str):
+        cert = cert.strip()
+        if cert.upper() == "SKIP":
+            return False
+        if cert:
+            return cert
+    return True
 
 
 @dataclass
@@ -94,7 +116,12 @@ def _run_migrations_safely(actual: Actual, migration_files: list[str]) -> None:
     """
     with sqlite3.connect(actual.data_dir / "db.sqlite") as conn:
         for file in migration_files:
-            if not file.startswith("migrations"):
+            if not file.startswith("migrations/"):
+                continue
+            if not file.endswith((".sql", ".js")):
+                _LOGGER.debug(
+                    "Skipping non-SQL/JavaScript Actual Budget data file %s", file
+                )
                 continue
 
             migration_id = file.split("_")[0].split("/")[1]
@@ -143,7 +170,7 @@ class ActualBudget:
         self.endpoint = endpoint
         self.password = password
         self.file = file
-        self.cert = cert
+        self.cert = _normalize_cert(cert)
         self.encrypt_password = encrypt_password
         self.actual: Actual | None = None
         self.file_id = None
@@ -302,7 +329,7 @@ class ActualBudget:
                 session = self._ensure_session()
                 if not session:
                     return "failed_file"
-        except SSLError:
+        except (SSLError, TypeError, ValueError):
             return "failed_ssl"
         except ConnectionError:
             return "failed_connection"
