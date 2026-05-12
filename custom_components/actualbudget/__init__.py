@@ -20,7 +20,7 @@ from .const import (
 )
 from .coordinator import ActualBudgetCoordinator
 
-__version__ = "3.0.1"
+__version__ = "3.0.2"
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[str] = ["sensor"]
