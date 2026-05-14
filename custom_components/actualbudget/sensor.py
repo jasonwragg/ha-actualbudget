@@ -9,7 +9,7 @@ from typing import Dict, Union
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.sensor.const import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -31,20 +31,45 @@ async def async_setup_entry(
     unit = config_entry.data.get(CONFIG_UNIT, "€")
     prefix = config_entry.data.get(CONFIG_PREFIX)
 
-    entities: list[SensorEntity] = [
-        ActualBudgetLastSyncSensor(coordinator, unique_source_id, prefix),
-    ]
-    data = coordinator.data
-    if data is not None:
+    async_add_entities(
+        [ActualBudgetLastSyncSensor(coordinator, unique_source_id, prefix)]
+    )
+
+    added_accounts: set[str] = set()
+    added_budgets: set[str] = set()
+
+    @callback
+    def _add_data_entities() -> None:
+        """Add account and budget sensors once coordinator data is available."""
+        data = coordinator.data
+        if data is None:
+            return
+
+        entities: list[SensorEntity] = []
         for name in data.accounts:
+            if name in added_accounts:
+                continue
+            added_accounts.add(name)
             entities.append(
-                ActualBudgetAccountSensor(coordinator, name, unit, unique_source_id, prefix)
+                ActualBudgetAccountSensor(
+                    coordinator, name, unit, unique_source_id, prefix
+                )
             )
         for name in data.budgets:
+            if name in added_budgets:
+                continue
+            added_budgets.add(name)
             entities.append(
-                ActualBudgetBudgetSensor(coordinator, name, unit, unique_source_id, prefix)
+                ActualBudgetBudgetSensor(
+                    coordinator, name, unit, unique_source_id, prefix
+                )
             )
-    async_add_entities(entities)
+
+        if entities:
+            async_add_entities(entities)
+
+    _add_data_entities()
+    config_entry.async_on_unload(coordinator.async_add_listener(_add_data_entities))
 
 
 class ActualBudgetAccountSensor(CoordinatorEntity[ActualBudgetCoordinator], SensorEntity):

@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import (HomeAssistant)
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
 from .actions import register_actions
@@ -57,7 +57,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     coordinator = ActualBudgetCoordinator(hass, api)
-    await coordinator.async_config_entry_first_refresh()
 
     # Compute a stable source id used for entity unique_ids.
     endpoint = config[CONFIG_ENDPOINT]
@@ -71,6 +70,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async def _async_initial_refresh() -> None:
+        """Refresh Actual Budget data without blocking Home Assistant startup."""
+        try:
+            await coordinator.async_request_refresh()
+        except Exception:
+            _LOGGER.exception("Initial Actual Budget refresh failed")
+
+    refresh_task = hass.async_create_task(_async_initial_refresh())
+    entry.async_on_unload(refresh_task.cancel)
     return True
 
 
